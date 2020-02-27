@@ -1,0 +1,23 @@
+{
+  "name": "reflex",
+  "version": "0.0.0",
+  "description": "A reactive programming library for javascript",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index",
+    "test": "mocha"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/sshockwave/reflex.git"
+  },
+  "author": "sshockwave",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/sshockwave/reflex/issues"
+  },
+  "homepage": "https://github.com/sshockwave/reflex#readme",
+  "devDependencies": {
+    "mocha": "^7.1.0"
+  }
+}
