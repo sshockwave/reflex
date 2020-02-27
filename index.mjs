@@ -48,7 +48,6 @@ export function value(store) {
             },
         },
     });
-    return inst;
 }
 
 export function computed(getter, setter) {
@@ -58,7 +57,6 @@ export function computed(getter, setter) {
     const updateEvent = new EventPipe;
     let store = null;
     function getValue() {
-        console.assert(dependTarget === null);
         dependTarget = [];
         const value = getter();
         if (store !== value) {
