@@ -57,6 +57,7 @@ export function computed(getter, setter) {
     const updateEvent = new EventPipe;
     let store = null;
     function getValue() {
+        const existingDependTarget = dependTarget;
         dependTarget = [];
         const value = getter();
         if (store !== value) {
@@ -64,7 +65,7 @@ export function computed(getter, setter) {
             updateEvent.push(store);
         }
         Promise.race(dependTarget).then(getValue);
-        dependTarget = null;
+        dependTarget = existsingDependTarget;
     }
     getValue();
     return Object.defineProperties(new Reactant, {
