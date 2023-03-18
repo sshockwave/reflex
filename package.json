@@ -3,8 +3,9 @@
   "version": "0.0.0",
   "description": "A reactive programming library for javascript",
   "source": "src/index.js",
+  "type": "module",
   "scripts": {
-    "start": "node index.mjs",
+    "start": "node src/index.js",
     "test": "c8 mocha"
   },
   "repository": {
