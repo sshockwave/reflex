@@ -2,7 +2,7 @@
   "name": "reflex",
   "version": "0.0.0",
   "description": "A reactive programming library for javascript",
-  "main": "index.js",
+  "source": "src/index.js",
   "scripts": {
     "start": "node index.mjs",
     "test": "c8 mocha"
@@ -19,7 +19,6 @@
   "homepage": "https://github.com/sshockwave/reflex#readme",
   "devDependencies": {
     "c8": "^7.13.0",
-    "mocha": "^10.2.0",
-    "parcel": "^2.8.3"
+    "mocha": "^10.2.0"
   }
 }
