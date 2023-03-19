@@ -1,90 +1,100 @@
 # Reflex
 
-Reflex is a reactive programming framework for javascript with no-surprise principles.
-The code goal is to make the library unhackable, either intentionally or accidentally.
+A reactive programming framework for javascript with the no-surprise principle.
 
 ## Getting Started
 
-The core library is minimalistic and only provides the `Reflex` function.
+The core library is minimalistic.
+There are only 3 APIs:
 
-* State objects: `new Reflex(constructor)` creates a state object whose properties are reactive states.
-* Executors: `Reflex(executor)` returns a reactive computed value.
+1. `new Reflex(constructor[, abortController])`
+2. `Reflex(executor)`
+3. `Reflex(state)`
+
+Let's start by importing the library:
 
 ```js
 import { Reflex as $ } from 'reflex';
+```
 
+Calling `new $(constructor)` is similar to running `new constructor()`,
+which creates a new object using the constructor function.
+An object created by Reflex is called a state object.
+
+```js
 const state = new $(function () {
-  // Reactive properties
   this.a = 1;
-  this.b = 2;
-
-  // Reactive computed value
-  this.sum = $(() => this.a + this.b);
-
-  // Reactive side effects
-  $(() => console.log('a has new value: ', this.a));
 });
 ```
 
-### Postulates
+The difference between state objects and ordinary objects is that the properties of state objects are _reactive_. [^object_difference]
+Reactive values can only be read in special contexts called _executors_.
+Calculations inside executors are re-run whenever any of the reactive values changes,
+so that the results are always up-to-date.
 
-TL;DR:
+[^object_difference]: Also, a state object cannot have prototypes, which you probably don't care about.
 
-1. A state object behaves exactly like an ordinary object inside executors,
-except that they can't have prototypes.
-2. Reactive values can only be read in executors, while reactive state properties can be set everywhere.
-3. The executor function is re-run whenever any of its reactive dependencies change.
-3. The return value of an executor can only be assigned to a state property,
+An executor is created using the API `$(executor)`,
+where the `executor` is a function.
+The return value can only be assigned to a state property.
 and only during the construction of the state.
 
-If you are interested in the rationale, read on.
+```js
+const state = new $(function () {
+  this.a = 1;
+  this.b = 2;
+  this.sum = $(() => this.a + this.b);
+});
+```
 
-In order for the reactive properties to be updated correctly,
-the reactive states have some postulates that are enforced by the library.
-In the production mode, the library would not validate these postulates and violations would cause undefined behavior.
+Of course, the return value of `$(executor)` can be ignored,
+in which case the executor is run for its side effects.
 
-1. Reactive values can only be read in an executor function.
+Javascript performs garbage collection for objects,
+but some external resources need explicit release.
+Reflex provides a mechanism to release resources by leveraging [`AbortController`](https://developer.mozilla.org/en-US/docs/Web/API/AbortController).
+You can define custom abort behaviours for executors by listening to the `abort` event on the `AbortController.signal` passed to the `executor`.
 
-    ```js
-    new $(function () {
-      this.a = 1;
-      this.a2 = $(() => this.a * 2); // ok
-      this.a3 = this.a * 3;          // error, reading outside an executor
+```js
+const windowSize = new $(function () {
+  const update = () => {
+    this.width = window.innerWidth;
+    this.height = window.innerHeight;
+  };
+  update();
+  $(({ signal }) => {
+    window.addEventListener('resize', update);
+    signal.addEventListener('abort', () => {
+      window.removeEventListener('resize', update);
     });
-    ```
+  });
+});
+```
 
-    Rationale: If reactive values are used outside of executors, the value would never be updated.
+So when will the executor be aborted?
+There are two possible cases:
 
-2. Executors can be created and assigned to a state property only during the construction of the state.
+1. If any of the reactive dependencies of the executor changes,
+the executor is aborted and re-run.
+2. If the executor is created during the construction of a state object,
+the executor is aborted when the state object is destroyed.
 
-    ```js
-    const state = new $(function () {
-      this.a = 1;                     // ok
-      this.a2 = $(() => this.a * 2);  // ok
-    });
-    state.b = 2;                      // ok
-    state.a3 = $(() => state1.a * 3); // error, defining a computed value outside of constructor
-    ```
+State objects can be destroyed by first passing an `AbortController` during construction,
+and then calling `abortController.abort()`.
+When destroyed, all executors associated with the state object are aborted,
+and the state object is no longer usable.
 
-    Another example:
+```js
+const abortController = new AbortController();
+const component = new $(function () {
+  // ...
+}, abortController);
 
-    ```js
-    let a2;
-    const state1 = new $(function () {
-      this.a = 1;
-      a2 = $(() => this.a * 2);
-    });
-    const state2 = new $(function () {
-      this.a2 = a2;                      // error, this constructor is not the one that created a2
-      state1.a5 = $(() => state1.a * 5); // error, this is not the constructor for state1
-    });
-    ```
+// Unmount the component
+abortController.abort();
+```
 
-    Rationale: The lifetime of an executor is bound to the lifetime of the state object.
-
-### Destruction
-
-### Best Practices
+## Best Practices
 
 * Seperate executors if two operations depend on different states.
 
@@ -111,7 +121,7 @@ In the production mode, the library would not validate these postulates and viol
   });
   ```
 
-* Merge two executors into one if one executor depends on the output of the other. This is for better performance.
+* Avoid circular dependencies.
 
   ```js
   const state1 = new $(function () {
@@ -136,4 +146,11 @@ In the production mode, the library would not validate these postulates and viol
 
 ## Development
 
-Everything starting with `Reflex` is public API or can be seen from the outside.
+The code goal is to make the library unbreakable from either intentional or accidental misuse.
+
+An identifier starts with `Reflex` if and only if it's public API or it can be seen from the outside.
+
+Reflex is built on top of ECMAScript 2015 (ES6).
+It's recommended to use a transpiler to compile the code to a compatible version.
+It also uses `AbortController`,
+which is a part of Web API & Node.js 15.0.0+.
