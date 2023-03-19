@@ -26,6 +26,7 @@ const handler = {
     throw new ReflexError('not implemented');
   },
   get({ state }, property, receiver) {
+    // forbid getting values during state setup
     const node = state.get(property);
     accessNode(node);
     return node.getValue();

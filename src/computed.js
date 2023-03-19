@@ -20,6 +20,7 @@ class ReflexComputed {
 
 class ComputedNode {
   constructor(fn, state) {
+    // FIXME: Delay execution to next tick.
     this.fn = fn;
     this.state = state;
     const oldInput = inputs;
@@ -47,6 +48,7 @@ class ComputedNode {
     inputs = null;
   }
   getValue() {
+    // FIXME: forbid getting computed values before init
     return this.value;
   }
   setValue() {

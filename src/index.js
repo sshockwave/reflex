@@ -1,10 +1,8 @@
 import { createComputed } from './computed.js';
 import { createState } from './state.js';
 
-class Reflex { }
-
-export const reflex = new Proxy(
-  Object.freeze(new Reflex),
+export const Reflex = new Proxy(
+  Object.freeze(new class Reflex { }),
   {
     apply(target, thisArg, [fn]) {
       return createComputed(fn, createState());
@@ -15,8 +13,6 @@ export const reflex = new Proxy(
       Reflect.apply(fn, state, []);
       return state;
     },
-
-    getPrototypeOf(target) { return Reflex.prototype; },
   },
 );
 
