@@ -1,15 +1,17 @@
 # Reflex
 
-A reactive programming framework for javascript with the no-surprise principle.
+Reflex is a reactive programming framework for JavaScript aiming to be safe & no-surprise.
+It is minimal and zero-extensible by design.
+Also, the slogan is inspired by [Rust](https://doc.rust-lang.org/book/ch16-00-concurrency.html).
 
 ## Getting Started
 
 The core library is minimalistic.
 There are only 3 APIs:
 
-1. `new Reflex(constructor[, abortController])`
+1. `new Reflex(constructor[, signal])`
 2. `Reflex(executor)`
-3. `Reflex(state)`
+3. `Reflex(signal)`
 
 Let's start by importing the library:
 
@@ -17,9 +19,7 @@ Let's start by importing the library:
 import { Reflex as $ } from 'reflex';
 ```
 
-Calling `new $(constructor)` is similar to running `new constructor()`,
-which creates a new object using the constructor function.
-An object created by Reflex is called a state object.
+Create a new state object:
 
 ```js
 const state = new $(function () {
@@ -27,17 +27,7 @@ const state = new $(function () {
 });
 ```
 
-The difference between state objects and ordinary objects is that the properties of state objects are _reactive_. [^object_difference]
-Reactive values can only be read in special contexts called _executors_.
-Calculations inside executors are re-run whenever any of the reactive values changes,
-so that the results are always up-to-date.
-
-[^object_difference]: Also, a state object cannot have prototypes, which you probably don't care about.
-
-An executor is created using the API `$(executor)`,
-where the `executor` is a function.
-The return value can only be assigned to a state property.
-and only during the construction of the state.
+Computed properties:
 
 ```js
 const state = new $(function () {
@@ -47,52 +37,218 @@ const state = new $(function () {
 });
 ```
 
-Of course, the return value of `$(executor)` can be ignored,
-in which case the executor is run for its side effects.
+`this.sum` will be reactive and updates whenever `this.a` or `this.b` changes.
 
-Javascript performs garbage collection for objects,
-but some external resources need explicit release.
-Reflex provides a mechanism to release resources by leveraging [`AbortController`](https://developer.mozilla.org/en-US/docs/Web/API/AbortController).
-You can define custom abort behaviours for executors by listening to the `abort` event on the `AbortController.signal` passed to the `executor`.
+Side effects:
 
 ```js
-const windowSize = new $(function () {
-  const update = () => {
-    this.width = window.innerWidth;
-    this.height = window.innerHeight;
-  };
-  update();
-  $(({ signal }) => {
-    window.addEventListener('resize', update);
+const state = new $(function () {
+  this.title = 'Hello, World!';
+  $(() => {
+    document.title = this.title;
+  });
+});
+```
+
+Destructors:
+
+```js
+const state = new $(function () {
+  this.info = 'Hello, World!';
+  $((signal) => {
+    const node = document.createElement('div');
+    node.textContent = this.info;
+    document.body.appendChild(node);
+    console.log(this.info);
     signal.addEventListener('abort', () => {
-      window.removeEventListener('resize', update);
+      node.remove();
     });
   });
 });
 ```
 
-So when will the executor be aborted?
-There are two possible cases:
-
-1. If any of the reactive dependencies of the executor changes,
-the executor is aborted and re-run.
-2. If the executor is created during the construction of a state object,
-the executor is aborted when the state object is destroyed.
-
-State objects can be destroyed by first passing an `AbortController` during construction,
-and then calling `abortController.abort()`.
-When destroyed, all executors associated with the state object are aborted,
-and the state object is no longer usable.
+State objects could be destructed as well:
 
 ```js
-const abortController = new AbortController();
-const component = new $(function () {
-  // ...
-}, abortController);
+const controller = new AbortController;
+const state = new $(function () {
+  $((signal) => {
+    signal.addEventListener('abort', () => {
+      console.log('Destroyed!');
+    });
+  });
+}, controller);
 
-// Unmount the component
-abortController.abort();
+controller.abort();
+// Destroyed!
 ```
+
+Asynchronous operations are going to be a little bit more complicated.
+Inside callbacks,
+`this` must be retrieved using `$(signal)`:
+
+```js
+const state = new $(function () {
+  $(async (signal) => {
+    const response = await fetch('https://api.example.com/');
+    const result = await response.json();
+    if (signal.aborted) return;
+    $(signal).result = result;
+  });
+});
+```
+
+Good news: the `signal` object is a standard [`AbortSignal`](https://developer.mozilla.org/en-US/docs/Web/API/AbortSignal).
+
+```js
+const state = new $(function () {
+  $(async (signal) => {
+    this.scrollY = window.scrollY;
+    window.addEventListener('scroll', () => {
+      $(signal).scrollY = window.scrollY;
+    }, { signal });
+  });
+});
+```
+
+That's all!
+
+## Rationale
+
+You might be thrown with tons of annoying errors when starting to use the library.
+The constraints are required by neither the library or the JavaScript language,
+but rather the reactive programming paradigm itself.
+
+What are the implications for reading 
+Since it's "reactive",
+its value might change in the future.
+So what has been done should be done again whenever the reactive value have changed.
+Hence Reflex requires that the reactive value should only be read inside `executor`s,
+where Reflex can detect what reactive values have been used
+and Reflex would be able to run the function again when necessary.
+
+Be aware that the `executor` context does not include callbacks or asynchronous operations.
+The values might have changed during the async operations.
+This results in inconsistent values between the states read before and after the async operation.
+For example:
+
+```js
+const state = new $(function () {
+  this.expenses = 10;
+  $(() => {
+    const response = await fetch('/api/revenue');
+    const revenue = Number.parseInt(await response.text());
+    console.log('Profit: ', revenue - this.expenses);
+  });
+});
+```
+
+If `this.expenses` is changed during `fetch()`,
+the console would output a profit value which does not occur at any point in time.
+If you really need the value, read it before the async operations:
+
+```js
+const state = new $(function () {
+  this.expenses = 10;
+  $(async () => {
+    const { expenses } = this;
+    const response = await fetch('/api/revenue');
+    const revenue = Number.parseInt(await response.text());
+    console.log('Profit: ', revenue - expenses);
+  });
+});
+```
+
+Now the values are consistent,
+but another problem remains:
+The result can be outdated after `this.expenses` changed.
+Changing `this.expenses` would trigger another calculation,
+and the previous calculation is no longer required.
+Reflex uses `AbortController` to abort the ongoing request when needed.
+
+```js
+const state = new $(function () {
+  this.expenses = 10;
+  $(async (signal) => {
+    const { expenses } = this;
+    const response = await fetch('/api/revenue', { signal });
+    if (signal.aborted) return;
+    // ...
+  })
+});
+```
+
+Abort signal can also be used to release external resources:
+
+```js
+const state = new $(function () {
+  this.value = 1;
+  $((signal) => {
+    const resource = new Resource(this.value);
+    signal.addEventListener('abort', () => {
+      resource.release();
+    });
+  });
+});
+```
+
+Whenever `this.value` changes,
+the resource will be released and a new one will be created,
+so that the resource is up-to-date.
+Some resources can be updated instead of being released and created again.
+This is feasible:
+
+```js
+const state = new $(function () {
+  const initial_value = 1; // don't use a reactive value here
+  this.resource = $((signal) => {
+    signal.addEventListener('abort', () => {
+      this.resource.release();
+    });
+    return new Resource(initial_value);
+  });
+  $((signal) => {
+    if (this.value === undefined) return;
+    this.resource.update(this.value);
+  });
+});
+```
+
+`this.resource.update()` is not noticed by Reflex,
+which is intended,
+because there are a lot of ways in JavaScript to sneak in the updates without letting Reflex notice.
+Therefore,
+Reflex only does what it can do,
+and does it well:
+monitor the updates of direct properties of state objects.
+
+But updating a value correctly is not an easy task, too.
+If an executor has been aborted,
+the executor should no longer touch any states,
+because the states will be updated by newer runs.
+It is easy to forget to check the abort signal
+and a proper mechanism to prevent this type of errors is necessary.
+
+Reflex checks the update access within the `$(signal)` function.
+Reflex poses an additional constraint that an executor can only update `this`.
+This is for simplicity of API, declarative programming, and better encapsulation.
+In terms of encapsulation,
+if any state can be updated using a signal,
+there is a hack:
+
+```js
+let global_signal;
+$((signal) => {
+  global_signal = signal;
+});
+```
+
+Then any value can be updated using `$(global_signal)`.
+Unexpected updates can happen and this is not a good practice.
+Easily put,
+we should create setters for properties as if they are private.
+
+This also solves the problem of the state object lifecycle. (?)
 
 ## Best Practices
 
